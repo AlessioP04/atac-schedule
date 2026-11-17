@@ -1,0 +1,76 @@
+# Ogni notte scarica il GTFS di Roma Mobilità, ricostruisce timetable.db e lo pubblica nella release "db".
+# L'app legge https://github.com/<repo>/releases/download/db/manifest.json e scarica il database
+# solo quando feed_sha256 cambia (cioè quando Roma Mobilità pubblica un feed nuovo).
+name: Aggiorna database orari
+
+on:
+  schedule:
+    - cron: "30 2 * * *"   # 03:30 / 04:30 ora di Roma
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Pubblica anche se il feed non è cambiato"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths: ["pipeline/**", ".github/workflows/update-db.yml"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-db
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: db
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Costruisci il database
+        run: python pipeline/build_db.py --download
+
+      - name: Confronta con la release pubblicata
+        id: check
+        run: |
+          new_feed=$(jq -r .feed_sha256 out/manifest.json)
+          new_schema=$(jq -r .schema_version out/manifest.json)
+          if gh release download "$RELEASE_TAG" -p manifest.json -O old-manifest.json 2>/dev/null; then
+            old_feed=$(jq -r '.feed_sha256 // ""' old-manifest.json)
+            old_schema=$(jq -r .schema_version old-manifest.json)
+          fi
+          # Una modifica alla pipeline (push) o una richiesta manuale forzano la pubblicazione.
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.force }}" = "true" ] \
+             || [ "$new_feed" != "${old_feed:-}" ] || [ "$new_schema" != "${old_schema:-}" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "Feed nuovo o pubblicazione forzata: pubblico."
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "Feed invariato ($new_feed): niente da pubblicare."
+          fi
+
+      - name: Pubblica nella release "${{ env.RELEASE_TAG }}"
+        if: steps.check.outputs.publish == 'true'
+        run: |
+          valid_from=$(jq -r .valid_from out/manifest.json)
+          valid_to=$(jq -r .valid_to out/manifest.json)
+          notes="Database degli orari generato automaticamente da pipeline/build_db.py.
+          Validità: dal ${valid_from:6:2}/${valid_from:4:2}/${valid_from:0:4} al ${valid_to:6:2}/${valid_to:4:2}/${valid_to:0:4}.
+          Aggiornato: $(jq -r .generated_at out/manifest.json)"
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --title "Database orari" --notes "$notes" --latest=false
+          fi
+          # Prima il database, poi il manifest che lo descrive.
+          gh release upload "$RELEASE_TAG" out/timetable.db.gz --clobber
+          gh release upload "$RELEASE_TAG" out/manifest.json --clobber
+          gh release edit "$RELEASE_TAG" --notes "$notes"

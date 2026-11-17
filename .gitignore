@@ -1,6 +1,6 @@
 # Dati scaricati / generati (la pipeline li ricrea)
-data/
-out/
+/data/
+/out/
 *.db
 
 # Python

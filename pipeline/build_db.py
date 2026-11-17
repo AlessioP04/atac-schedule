@@ -290,6 +290,7 @@ def write_release_files(db_path: Path) -> dict:
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "generated_at": meta["generated_at"],
+        "feed_sha256": meta["feed_sha256"],  # l'app riscarica solo se il feed è cambiato
         "valid_from": meta["valid_from"],
         "valid_to": meta["valid_to"],
         "file": gz_path.name,
