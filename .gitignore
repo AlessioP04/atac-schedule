@@ -1,0 +1,18 @@
+# Dati scaricati / generati (la pipeline li ricrea)
+data/
+out/
+*.db
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Android / Gradle
+.gradle/
+build/
+local.properties
+*.keystore
+*.jks
+.idea/
+*.iml
