@@ -16,3 +16,6 @@ local.properties
 *.jks
 .idea/
 *.iml
+
+# Chiave di firma (vedi ../orariAutobus-firma/LEGGIMI.txt)
+keystore.properties

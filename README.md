@@ -69,6 +69,20 @@ unica dei feriali con le eccezioni segnate resta compatta.
 - `update-db.yml`: ogni notte ricostruisce il db e, se il feed è cambiato, lo pubblica nella release
   [`db`](https://github.com/AlessioP04/atac-schedule/releases/tag/db) (`timetable.db.gz` + `manifest.json`).
 - `android.yml`: test + APK di debug (come artifact) a ogni modifica di `android/`.
+- `release.yml`: a ogni tag `vX.Y.Z` compila l'APK firmato e lo pubblica nelle
+  [Releases](https://github.com/AlessioP04/atac-schedule/releases/latest):
+  ```
+  git tag v0.2.0 && git push origin v0.2.0
+  ```
+  La versione dell'app viene dal tag (versionCode = X·10000 + Y·100 + Z).
+
+### Firma
+
+La chiave di firma è nei secret del repo (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
+`ANDROID_KEY_ALIAS`); la copia di sicurezza è fuori dal repo, in `../orariAutobus-firma/`.
+Per firmare in locale basta un `android/keystore.properties` (ignorato da git) con
+`storeFile`, `storePassword`, `keyAlias`. **Se la chiave va persa non si possono più installare
+aggiornamenti sopra la versione esistente.**
 
 ## Roadmap
 
