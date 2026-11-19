@@ -34,7 +34,7 @@ val releaseKey: Map<String, String>? = run {
 }
 
 /** Versione: dal tag (es. -PappVersion=0.2.0 nel workflow di release), altrimenti quella di sviluppo. */
-val appVersion = (findProperty("appVersion") as String?) ?: "0.2.0"
+val appVersion = (findProperty("appVersion") as String?) ?: "0.2.1"
 val appVersionCode = appVersion.split(".").map { it.toInt() }.let { (major, minor, patch) -> major * 10_000 + minor * 100 + patch }
 
 android {

@@ -218,7 +218,12 @@ fun HomeScreen(onOpen: (Long) -> Unit, onAdd: () -> Unit) {
         )
         when {
             list == null -> Box(Modifier.fillMaxSize().padding(padding), Alignment.Center) { CircularProgressIndicator() }
-            list.isEmpty() -> EmptyHome(meta == null, updating, Modifier.padding(padding))
+            list.isEmpty() -> Column(Modifier.padding(padding)) {
+                if (hasNotices(meta, newRelease)) Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                    Notices(meta, newRelease, onUpdate = { vm.update() })
+                }
+                EmptyHome(meta == null, updating, Modifier)
+            }
             compact -> LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
                 contentPadding = contentPadding,

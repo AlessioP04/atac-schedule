@@ -36,7 +36,7 @@ class AppPrefs(context: Context) {
     private fun storedRelease(): AppRelease? {
         val version = prefs.getString(KEY_RELEASE_VERSION, null) ?: return null
         val url = prefs.getString(KEY_RELEASE_URL, null) ?: return null
-        return AppRelease(version, url).takeIf { Versions.isNewer(version, BuildConfig.VERSION_NAME) }
+        return AppRelease(version.removePrefix("v"), url).takeIf { Versions.isNewer(version, BuildConfig.VERSION_NAME) }
     }
 
     /** Chiede a GitHub l'ultima release dell'app (l'API pubblica non richiede token). */
