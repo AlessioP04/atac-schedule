@@ -143,17 +143,41 @@ def load_routes(gtfs: zipfile.ZipFile) -> dict[str, tuple[str, int, str]]:
 
 
 # --------------------------------------------------------------------------- #
-# 3. Passaggi: una sola lettura di stop_times.txt per tutte le fermate
+# 3. Passaggi: stop_times.txt letto in streaming, una corsa alla volta
 # --------------------------------------------------------------------------- #
 
+def find_split_trips(gtfs: zipfile.ZipFile) -> set[str]:
+    """Corse le cui righe in stop_times.txt non sono contigue.
+
+    Di solito il file è raggruppato per trip_id, ma dal feed del 19/11/2026 alcune centinaia di corse
+    hanno l'ultima fermata in fondo al file, separata dal resto: vanno ricomposte prima di elaborarle.
+    """
+    split: set[str] = set()
+    seen: set[str] = set()
+    last = ""
+    with open_csv(gtfs, "stop_times.txt") as (col, rows):
+        i_trip = col["trip_id"]
+        for row in rows:
+            trip_id = row[i_trip]
+            if trip_id != last:
+                if trip_id in seen:
+                    split.add(trip_id)
+                seen.add(trip_id)
+                last = trip_id
+    return split
+
+
 def collect_departures(
-    gtfs: zipfile.ZipFile, feed: Feed, trips: dict[str, Trip], services: dict[str, set[date]]
+    gtfs: zipfile.ZipFile, feed: Feed, trips: dict[str, Trip], services: dict[str, set[date]], split: set[str]
 ) -> tuple[dict[int, dict[int, array]], list[frozenset[date]]]:
     """Raggruppa ogni passaggio per linea e per "insieme di date reali".
 
     Una corsa del servizio S alle 25:10 passa alle 01:10 del giorno DOPO ogni data di S:
     per questo l'insieme di date dipende da (servizio, giorni di scarto). Gli insiemi sono pochi
     e vengono calcolati una volta sola (cache `shifted`).
+
+    Le corse in `split` (righe non contigue) si accumulano a parte e si elaborano alla fine;
+    tutte le altre in streaming, senza tenere in memoria il file.
 
     Restituisce:
         departures[line_id][shifted_id] = minuti (array compatto di uint16)
@@ -178,28 +202,40 @@ def collect_departures(
                 line_id = feed.lines((stop_id, trip.route_id, trip.direction, trip.headsign))
                 departures[line_id][sid].append(minute)
 
+    pending: dict[str, list[tuple[int, str, int, str]]] = {t: [] for t in split if t in trips}
+
     with open_csv(gtfs, "stop_times.txt") as (col, rows):
         i_trip, i_stop, i_seq, i_dep = col["trip_id"], col["stop_id"], col["stop_sequence"], col["departure_time"]
         i_pickup = col.get("pickup_type")
         current_trip: Trip | None = None
         current_id = ""
         buffer: list[tuple[int, str, int, str]] = []
-        seen: set[str] = set()
+        done: set[str] = set()
+
+        def flush() -> None:
+            if current_trip is None:
+                return
+            if current_id in pending:
+                pending[current_id].extend(buffer)
+            else:
+                add_trip(current_trip, buffer)
 
         for row in rows:
             trip_id = row[i_trip]
             if trip_id != current_id:
-                if current_trip is not None:
-                    add_trip(current_trip, buffer)
-                if trip_id in seen:
-                    raise ValueError(f"stop_times.txt non è raggruppato per trip_id (rivisto {trip_id})")
-                seen.add(trip_id)
+                flush()
+                if trip_id in done and trip_id not in pending:
+                    # find_split_trips l'avrebbe dovuta trovare: il file è cambiato durante la lettura?
+                    raise ValueError(f"stop_times.txt: corsa {trip_id} spezzata ma non rilevata")
+                done.add(trip_id)
                 current_id, current_trip, buffer = trip_id, trips.get(trip_id), []
             if current_trip is not None and row[i_dep]:
                 pickup = row[i_pickup] if i_pickup is not None else ""
                 buffer.append((int(row[i_seq]), row[i_stop], parse_time(row[i_dep]), pickup))
-        if current_trip is not None:
-            add_trip(current_trip, buffer)
+        flush()
+
+    for trip_id, stops in pending.items():
+        add_trip(trips[trip_id], stops)
 
     return departures, shifted_dates
 
@@ -324,7 +360,10 @@ def build(gtfs_path: Path, out_dir: Path) -> dict:
         trips = load_trips(gtfs, services)
         step(f"anagrafiche: {len(feed.stops)} fermate, {len(feed.routes)} linee, {len(trips)} corse attive")
 
-        departures, shifted_dates = collect_departures(gtfs, feed, trips, services)
+        split = find_split_trips(gtfs)
+        if split:
+            step(f"{len(split)} corse con righe non contigue in stop_times.txt: verranno ricomposte")
+        departures, shifted_dates = collect_departures(gtfs, feed, trips, services, split)
         step(f"stop_times letto: {len(feed.lines)} linee-fermata")
 
     build_schedules(feed, departures, shifted_dates)
