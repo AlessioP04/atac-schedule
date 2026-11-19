@@ -3,6 +3,7 @@ package io.github.alessiop04.atacschedule.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalContentColor
@@ -37,12 +38,13 @@ fun lineLabel(routeName: String, routeType: Int): String =
     if (routeType == 1 && routeName.startsWith("ME")) routeName.removePrefix("ME") else routeName
 
 @Composable
-fun LineBadge(routeName: String, routeType: Int, modifier: Modifier = Modifier, large: Boolean = false) {
+fun LineBadge(routeName: String, routeType: Int, modifier: Modifier = Modifier, large: Boolean = false, fixedWidth: Boolean = true) {
     Box(
         modifier
-            .width(if (large) 72.dp else 60.dp) // larghezza fissa: frecce e nomi restano allineati
+            // larghezza fissa negli elenchi (frecce e nomi restano allineati), minima nei gruppi di bollini
+            .then(if (fixedWidth) Modifier.width(if (large) 72.dp else 60.dp) else Modifier.widthIn(min = 40.dp))
             .background(lineColor(routeName, routeType), RoundedCornerShape(8.dp))
-            .padding(horizontal = 4.dp, vertical = if (large) 6.dp else 4.dp),
+            .padding(horizontal = if (fixedWidth) 4.dp else 7.dp, vertical = if (large) 6.dp else 4.dp),
         contentAlignment = Alignment.Center,
     ) {
         val label = lineLabel(routeName, routeType)

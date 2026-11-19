@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Orari Bus Roma</string>
+    <string name="widget_name">Prossimi passaggi</string>
+    <string name="widget_description">Le linee salvate con i prossimi passaggi</string>
 </resources>

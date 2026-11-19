@@ -34,7 +34,7 @@ val releaseKey: Map<String, String>? = run {
 }
 
 /** Versione: dal tag (es. -PappVersion=0.2.0 nel workflow di release), altrimenti quella di sviluppo. */
-val appVersion = (findProperty("appVersion") as String?) ?: "0.1.0"
+val appVersion = (findProperty("appVersion") as String?) ?: "0.2.0"
 val appVersionCode = appVersion.split(".").map { it.toInt() }.let { (major, minor, patch) -> major * 10_000 + minor * 100 + patch }
 
 android {
@@ -133,6 +133,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.glance.appwidget)
     implementation(libs.kotlinx.coroutines.android)
 
     implementation(platform(libs.compose.bom))

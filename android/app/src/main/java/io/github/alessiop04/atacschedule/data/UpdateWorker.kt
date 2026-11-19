@@ -11,13 +11,16 @@ import androidx.work.WorkerParameters
 import io.github.alessiop04.atacschedule.App
 import java.util.concurrent.TimeUnit
 
-/** Controlla una volta al giorno se c'è un nuovo database (scarica solo se il feed è cambiato). */
+/** Una volta al giorno: nuovo database (scaricato solo se il feed è cambiato) e nuova versione dell'app. */
 class UpdateWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
-    override suspend fun doWork(): Result =
-        when ((applicationContext as App).timetable.update()) {
+    override suspend fun doWork(): Result {
+        val app = applicationContext as App
+        app.prefs.checkForNewRelease()
+        return when (app.timetable.update()) {
             is UpdateResult.Failed -> if (runAttemptCount < 3) Result.retry() else Result.failure()
             else -> Result.success()
         }
+    }
 
     companion object {
         fun schedule(context: Context) {

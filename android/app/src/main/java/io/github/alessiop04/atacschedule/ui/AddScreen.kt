@@ -1,6 +1,16 @@
 package io.github.alessiop04.atacschedule.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.ui.platform.LocalContext
+import io.github.alessiop04.atacschedule.domain.Geo
+import io.github.alessiop04.atacschedule.system.Locator
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -70,6 +80,14 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 
+/** Ricerca delle fermate vicine alla posizione attuale. */
+sealed interface Nearby {
+    data object Idle : Nearby
+    data object Locating : Nearby
+    data class Found(val stops: List<StopResult>) : Nearby
+    data class Error(val message: String) : Nearby
+}
+
 /** Esito della ricerca: null = nessun database disponibile. */
 data class SearchState(val query: String, val results: List<StopResult>?)
 
@@ -94,6 +112,30 @@ class AddViewModel(private val app: App) : ViewModel() {
     val saved: StateFlow<Set<LineKey>> = app.favorites.items
         .map { list -> list.mapTo(HashSet()) { it.key } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+    private val _nearby = MutableStateFlow<Nearby>(Nearby.Idle)
+    val nearby: StateFlow<Nearby> = _nearby.asStateFlow()
+
+    fun findNearby() {
+        if (_nearby.value == Nearby.Locating) return
+        _nearby.value = Nearby.Locating
+        viewModelScope.launch {
+            _nearby.value = when {
+                !Locator.hasPermission(app) -> Nearby.Error("Per le fermate vicine serve il permesso di posizione.")
+                !Locator.isEnabled(app) -> Nearby.Error("Attiva la localizzazione del telefono e riprova.")
+                else -> {
+                    val location = Locator.current(app)
+                    if (location == null) Nearby.Error("Posizione non disponibile: riprova all'aperto o tra qualche secondo.")
+                    else app.timetable.query { it.nearbyStops(location.latitude, location.longitude) }
+                        ?.let { Nearby.Found(it) } ?: Nearby.Error("Orari non ancora scaricati.")
+                }
+            }
+        }
+    }
+
+    fun nearbyDenied() {
+        _nearby.value = Nearby.Error("Per le fermate vicine serve il permesso di posizione.")
+    }
 
     fun select(stop: StopResult?) {
         _stop.value = stop
@@ -123,6 +165,7 @@ fun AddScreen(onBack: () -> Unit, onSaved: () -> Unit) {
     val stop by vm.stop.collectAsStateWithLifecycle()
     val selected by vm.selected.collectAsStateWithLifecycle()
     val saved by vm.saved.collectAsStateWithLifecycle()
+    val nearby by vm.nearby.collectAsStateWithLifecycle()
     var naming by remember { mutableStateOf<List<LineAtStop>?>(null) }
 
     BackHandler(enabled = stop != null) { vm.select(null) }
@@ -164,7 +207,7 @@ fun AddScreen(onBack: () -> Unit, onSaved: () -> Unit) {
         },
     ) { padding ->
         val s = stop
-        if (s == null) SearchContent(query, search, { vm.query.value = it }, vm::select, Modifier.padding(padding))
+        if (s == null) SearchContent(query, search, nearby, { vm.query.value = it }, vm::select, vm::findNearby, vm::nearbyDenied, Modifier.padding(padding))
         else LinesContent(s, selected, saved, vm::toggle, Modifier.padding(padding))
     }
 
@@ -186,24 +229,35 @@ fun AddScreen(onBack: () -> Unit, onSaved: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SearchContent(
     query: String,
     search: SearchState,
+    nearby: Nearby,
     onQuery: (String) -> Unit,
     onSelect: (StopResult) -> Unit,
+    onNearby: () -> Unit,
+    onNearbyDenied: () -> Unit,
     modifier: Modifier,
 ) {
+    val context = LocalContext.current
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        if (granted.values.any { it }) onNearby() else onNearbyDenied()
+    }
     LaunchedEffect(Unit) { focus.requestFocus() }
+
+    fun askNearby() {
+        keyboard?.hide()
+        if (Locator.hasPermission(context)) onNearby() else permission.launch(Locator.PERMISSIONS)
+    }
 
     Column(modifier.fillMaxSize()) {
         OutlinedTextField(
             value = query,
             onValueChange = onQuery,
-            placeholder = { Text("Nome della fermata o numero della palina") },
+            placeholder = { Text("Fermata, via o n° palina", maxLines = 1) },
             leadingIcon = { Icon(Icons.Default.Search, null) },
             trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { onQuery("") }) { Icon(Icons.Default.Clear, "Cancella") } },
             singleLine = true,
@@ -214,14 +268,37 @@ private fun SearchContent(
         val results = search.results
         when {
             results == null -> Hint("Orari non ancora scaricati: torna alla schermata principale e premi ⟳.")
-            query.isBlank() -> Hint("Il numero della palina è scritto sul cartello della fermata. Puoi cercare anche per via, es. «marzabotto».")
-            results.isEmpty() && search.query == query -> Hint("Nessuna fermata trovata per «$query».")
-            else -> LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-                items(results, key = { it.stop.id }) { r ->
-                    StopRow(r, onClick = { keyboard?.hide(); onSelect(r) })
-                    HorizontalDivider()
+            query.isBlank() -> {
+                OutlinedButton(onClick = ::askNearby, modifier = Modifier.padding(horizontal = 16.dp)) {
+                    Icon(Icons.Default.LocationOn, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Fermate vicine a me")
+                }
+                when (nearby) {
+                    Nearby.Idle -> Hint("Il numero della palina è scritto sul cartello della fermata. Puoi cercare anche per via, es. «marzabotto».")
+                    Nearby.Locating -> Row(Modifier.padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Cerco la tua posizione…", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    is Nearby.Error -> Hint(nearby.message)
+                    is Nearby.Found ->
+                        if (nearby.stops.isEmpty()) Hint("Nessuna fermata nel raggio di 4 km.")
+                        else StopList(nearby.stops) { keyboard?.hide(); onSelect(it) }
                 }
             }
+            results.isEmpty() && search.query == query -> Hint("Nessuna fermata trovata per «$query».")
+            else -> StopList(results) { keyboard?.hide(); onSelect(it) }
+        }
+    }
+}
+
+@Composable
+private fun StopList(stops: List<StopResult>, onSelect: (StopResult) -> Unit) {
+    LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+        items(stops, key = { it.stop.id }) { r ->
+            StopRow(r, onClick = { onSelect(r) })
+            HorizontalDivider()
         }
     }
 }
@@ -232,12 +309,16 @@ private fun StopRow(r: StopResult, onClick: () -> Unit) {
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(Format.prettyName(r.stop.name), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            Text(r.stop.id, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                listOfNotNull(r.distance?.let(Geo::format), r.stop.id).joinToString(" · "),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         if (r.lines.isNotEmpty()) {
             Spacer(Modifier.height(6.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                r.lines.distinctBy { it.routeName }.forEach { LineBadge(it.routeName, it.routeType) }
+                r.lines.distinctBy { it.routeName }.forEach { LineBadge(it.routeName, it.routeType, fixedWidth = false) }
             }
             Spacer(Modifier.height(4.dp))
             // I capolinea distinguono le due fermate omonime sui lati opposti della strada.

@@ -2,6 +2,7 @@ package io.github.alessiop04.atacschedule.data
 
 import android.database.sqlite.SQLiteDatabase
 import io.github.alessiop04.atacschedule.domain.Format
+import io.github.alessiop04.atacschedule.domain.Geo
 import io.github.alessiop04.atacschedule.domain.LineSchedule
 import java.io.Closeable
 import java.io.File
@@ -14,7 +15,8 @@ data class Stop(val id: String, val name: String, val lat: Double, val lon: Doub
 
 data class LineAtStop(val key: LineKey, val routeName: String, val routeType: Int)
 
-data class StopResult(val stop: Stop, val lines: List<LineAtStop>)
+/** @param distance metri dalla posizione dell'utente (solo nella ricerca "vicino a me") */
+data class StopResult(val stop: Stop, val lines: List<LineAtStop>, val distance: Double? = null)
 
 data class DbMeta(
     val schemaVersion: Int,
@@ -54,6 +56,25 @@ class TimetableDb private constructor(private val db: SQLiteDatabase) : Closeabl
         }
         val lines = linesAt(stops.map { it.id })
         return stops.map { StopResult(it, lines[it.id].orEmpty()) }
+    }
+
+    /** Fermate entro `radius` metri (con almeno una linea), dalla più vicina; se sono poche allarga la ricerca. */
+    fun nearbyStops(lat: Double, lon: Double, radius: Double = 500.0, limit: Int = 25): List<StopResult> {
+        var r = radius
+        var found: List<Pair<Stop, Double>>
+        do {
+            val (minLat, maxLat, minLon, maxLon) = Geo.box(lat, lon, r).toList()
+            found = db.rawQuery(
+                "SELECT id, name, lat, lon FROM stops WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?",
+                arrayOf(minLat.toString(), maxLat.toString(), minLon.toString(), maxLon.toString()),
+            ).use { c ->
+                buildList { while (c.moveToNext()) add(Stop(c.getString(0), c.getString(1), c.getDouble(2), c.getDouble(3))) }
+            }.map { it to Geo.distance(lat, lon, it.lat, it.lon) }.filter { it.second <= r }
+            r *= 2
+        } while (found.size < 5 && r <= radius * 8)
+        val nearest = found.sortedBy { it.second }.take(limit)
+        val lines = linesAt(nearest.map { it.first.id })
+        return nearest.map { (stop, d) -> StopResult(stop, lines[stop.id].orEmpty(), d) }
     }
 
     fun linesAt(stopId: String): List<LineAtStop> = linesAt(listOf(stopId))[stopId].orEmpty()

@@ -46,19 +46,28 @@ cd android && ./gradlew assembleDebug    # APK in android/app/build/outputs/apk/
 ```
 
 - **Home**: le linee salvate, ognuna con un nome breve "da → a" (es. *Spinaceto → Eur*) e i prossimi passaggi.
-- **Aggiungi**: cerca la fermata per nome o numero di palina, spunta le linee, dai un nome e salva.
+  Due viste: schede complete oppure griglia compatta (due tragitti per riga: nome, linea, primo passaggio).
+- **Aggiungi**: cerca la fermata per nome, numero di palina o «vicino a me» (GPS, senza Google Play Services),
+  spunta le linee, dai un nome e salva.
+- **Widget** "Prossimi passaggi" per la schermata Home, che si ridisegna da solo a ogni passaggio.
+- **Scorciatoie**: tenendo premuta l'icona compaiono le prime linee; dal menu di una linea, «Aggiungi a Home»
+  crea un'icona che apre direttamente i suoi orari.
 - **Orari**: di base i feriali (5 giorni da oggi), poi Sabato, Domenica o un giorno qualsiasi.
   Gli orari dei feriali sono uniti in un'unica tabella: le corse che non ci sono tutti i giorni
   sono in colore con il giorno accanto (`lun` = solo lunedì, `no ven` = tutti tranne venerdì).
   I giorni con un orario completamente diverso (es. festivi infrasettimanali) si aprono a parte.
 - **Aggiornamenti**: una volta al giorno (WorkManager) e all'avvio l'app legge `manifest.json`
-  dalla release `db` e scarica il nuovo database solo se il feed è cambiato.
+  dalla release `db` e scarica il nuovo database solo se il feed è cambiato. Controlla anche se c'è
+  una nuova versione dell'app nelle Releases e lo segnala in home; avvisa se gli orari stanno per scadere.
+- **Rapidità**: niente lavoro sul main thread all'avvio (WorkManager inizializzato su richiesta,
+  scorciatoie e widget aggiornati in background).
 
 | Cartella | Ruolo |
 |---|---|
 | `domain/` | logica pura (testata): raggruppamento dei feriali, giorni speciali, formattazione |
 | `data/` | lettura di `timetable.db`, preferiti (`favorites.json`), aggiornamento dalla release |
 | `ui/` | schermate Compose |
+| `system/` | widget (Glance), scorciatoie, posizione |
 
 Con una settimana normale il 55% delle linee ha orari identici dal lunedì al venerdì e per le altre la
 differenza mediana è di 0 corse (90° percentile: 5, soprattutto corse notturne del lunedì): per questo la vista
@@ -94,7 +103,7 @@ aggiornamenti sopra la versione esistente.**
   - [x] 1.4 Scrittura del db compatto + verifica incrociata con `orari_fermata.py`
 - [x] **Fase 2 – App MVP**: ricerca fermata, preferiti, tabella settimanale, APK installabile
 - [x] **Fase 3 – Aggiornamento automatico**: GitHub Actions + download in-app del db
-- [ ] **Fase 4 – Rapidità**: widget, scorciatoie, fermate vicine
+- [x] **Fase 4 – Rapidità**: widget, scorciatoie, fermate vicine, vista compatta
 - [ ] **Fase 5 – (opzionale)**: tempo reale GTFS-RT
 
 ## Note sul feed (esplorato il 16/11/2026)

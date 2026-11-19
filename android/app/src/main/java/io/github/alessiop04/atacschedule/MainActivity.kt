@@ -9,6 +9,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.navigation.navDeepLink
+import io.github.alessiop04.atacschedule.system.Shortcuts
 import io.github.alessiop04.atacschedule.ui.AddScreen
 import io.github.alessiop04.atacschedule.ui.AppTheme
 import io.github.alessiop04.atacschedule.ui.HomeScreen
@@ -28,7 +30,12 @@ class MainActivity : ComponentActivity() {
                     composable("add") {
                         AddScreen(onBack = { nav.popBackStack() }, onSaved = { nav.popBackStack("home", inclusive = false) })
                     }
-                    composable("line/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
+                    composable(
+                        "line/{id}",
+                        arguments = listOf(navArgument("id") { type = NavType.LongType }),
+                        // aperta direttamente da scorciatoie e widget (Shortcuts.lineUri)
+                        deepLinks = listOf(navDeepLink { uriPattern = "${Shortcuts.SCHEME}://line/{id}" }),
+                    ) { entry ->
                         LineScreen(entry.arguments!!.getLong("id"), onBack = { nav.popBackStack() })
                     }
                 }
