@@ -4,6 +4,7 @@ import android.database.sqlite.SQLiteDatabase
 import io.github.alessiop04.atacschedule.domain.Format
 import io.github.alessiop04.atacschedule.domain.Geo
 import io.github.alessiop04.atacschedule.domain.LineSchedule
+import io.github.alessiop04.atacschedule.domain.Polyline
 import java.io.Closeable
 import java.io.File
 import java.time.LocalDate
@@ -18,6 +19,12 @@ data class LineAtStop(val key: LineKey, val routeName: String, val routeType: In
 /** @param distance metri dalla posizione dell'utente (solo nella ricerca "vicino a me") */
 data class StopResult(val stop: Stop, val lines: List<LineAtStop>, val distance: Double? = null)
 
+/**
+ * Percorso tipico di una linea (verso un capolinea): fermate in ordine e tracciato.
+ * @param shape coppie lat/lon consecutive, vedi [Polyline.decode]
+ */
+class RoutePattern(val stops: List<Stop>, val shape: DoubleArray)
+
 data class DbMeta(
     val schemaVersion: Int,
     val generatedAt: String,
@@ -30,6 +37,42 @@ data class DbMeta(
 class TimetableDb private constructor(private val db: SQLiteDatabase) : Closeable {
 
     val meta: DbMeta = readMeta()
+
+    /** I database prodotti prima della mappa non hanno la tabella dei percorsi. */
+    val hasPatterns: Boolean =
+        db.rawQuery("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'patterns'", null).use { it.moveToFirst() }
+
+    /** Tutte le fermate (circa 8.000), per la mappa. */
+    fun allStops(): List<Stop> =
+        db.rawQuery("SELECT id, name, lat, lon FROM stops", null).use { c ->
+            ArrayList<Stop>(c.count).apply { while (c.moveToNext()) add(Stop(c.getString(0), c.getString(1), c.getDouble(2), c.getDouble(3))) }
+        }
+
+    /** Percorso della linea verso quel capolinea; se il capolinea non c'è più, quello della stessa direzione. */
+    fun pattern(routeId: String, direction: Int, headsign: String): RoutePattern? {
+        if (!hasPatterns) return null
+        val row = db.rawQuery(
+            """SELECT stops, shape FROM patterns WHERE route_id = ? AND direction = ?
+               ORDER BY headsign = ? DESC LIMIT 1""",
+            arrayOf(routeId, direction.toString(), headsign),
+        ).use { c -> if (c.moveToFirst()) c.getString(0) to c.getString(1) else null } ?: return null
+        val ids = row.first.split(",")
+        val byId = HashMap<String, Stop>()
+        ids.distinct().chunked(500).forEach { chunk ->
+            db.rawQuery(
+                "SELECT id, name, lat, lon FROM stops WHERE id IN (${chunk.joinToString(",") { "?" }})", chunk.toTypedArray(),
+            ).use { c -> while (c.moveToNext()) byId[c.getString(0)] = Stop(c.getString(0), c.getString(1), c.getDouble(2), c.getDouble(3)) }
+        }
+        return RoutePattern(ids.mapNotNull(byId::get), Polyline.decode(row.second))
+    }
+
+    /** Nome e tipo di una linea (per la mappa aperta direttamente su un percorso). */
+    fun route(routeId: String): Pair<String, Int>? =
+        db.rawQuery("SELECT name, type FROM routes WHERE id = ?", arrayOf(routeId)).use { c ->
+            if (c.moveToFirst()) c.getString(0) to c.getInt(1) else null
+        }
+
+    fun stopResult(stopId: String): StopResult? = stop(stopId)?.let { StopResult(it, linesAt(it.id)) }
 
     fun stop(id: String): Stop? =
         db.rawQuery("SELECT id, name, lat, lon FROM stops WHERE id = ?", arrayOf(id)).use { c ->

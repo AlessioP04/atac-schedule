@@ -30,6 +30,7 @@ python pipeline/orari_fermata.py 74362          # stessi orari calcolati diretta
 | `pipeline/gtfs.py` | lettura dei CSV dallo zip, parsing di date/orari, download |
 | `pipeline/schema.sql` | **contratto** tra pipeline e app: tabelle e query di esempio |
 | `pipeline/build_db.py` | GTFS → `timetable.db` deduplicato |
+| `pipeline/shapes.py` | percorsi delle linee: semplificazione (5 m) e codifica Encoded Polyline |
 | `pipeline/query_db.py` | interroga il db come farà l'app |
 
 Regole applicate: orari oltre le 24:00 spostati al giorno reale, nessun passaggio al capolinea d'arrivo
@@ -49,6 +50,12 @@ cd android && ./gradlew assembleDebug    # APK in android/app/build/outputs/apk/
   Due viste: schede complete oppure griglia compatta (due tragitti per riga: nome, linea, primo passaggio).
 - **Aggiungi**: cerca la fermata per nome, numero di palina o «vicino a me» (GPS, senza Google Play Services),
   spunta le linee, dai un nome e salva.
+- **Mappa** (OpenStreetMap, nessuna chiave né servizi Google; si carica solo quando si apre):
+  - dalla ricerca, icona in alto: tutte le fermate, «la mia posizione», ricerca di fermate, vie e luoghi
+    (luoghi con Nominatim, solo alla conferma); toccando una fermata si vedono le sue linee e, toccandole,
+    i loro percorsi; «Scegli le linee» torna al salvataggio classico
+  - percorso di una linea (dall'elenco delle linee di una fermata o dagli orari): tracciato e fermate in ordine,
+    con la propria fermata evidenziata
 - **Widget** "Prossimi passaggi" per la schermata Home, che si ridisegna da solo a ogni passaggio.
 - **Scorciatoie**: tenendo premuta l'icona compaiono le prime linee; dal menu di una linea, «Aggiungi a Home»
   crea un'icona che apre direttamente i suoi orari.
@@ -104,6 +111,7 @@ aggiornamenti sopra la versione esistente.**
 - [x] **Fase 2 – App MVP**: ricerca fermata, preferiti, tabella settimanale, APK installabile
 - [x] **Fase 3 – Aggiornamento automatico**: GitHub Actions + download in-app del db
 - [x] **Fase 4 – Rapidità**: widget, scorciatoie, fermate vicine, vista compatta
+- [x] **Mappa**: percorsi delle linee e scelta delle fermate dalla mappa
 - [ ] **Fase 5 – (opzionale)**: tempo reale GTFS-RT
 
 ## Note sul feed (esplorato il 16/11/2026)

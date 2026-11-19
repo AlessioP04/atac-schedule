@@ -65,3 +65,14 @@ CREATE TABLE schedules (
     timetable_id INTEGER NOT NULL REFERENCES timetables(id),
     PRIMARY KEY (line_id, day_set_id)
 ) WITHOUT ROWID;
+
+-- Percorso "tipico" di ogni linea in una direzione verso un capolinea (la variante con più corse),
+-- per la mappa dell'app. Aggiunta compatibile con lo schema 1: le app che non la conoscono la ignorano.
+CREATE TABLE patterns (
+    route_id  TEXT NOT NULL REFERENCES routes(id),
+    direction INTEGER NOT NULL,
+    headsign  TEXT NOT NULL,
+    stops     TEXT NOT NULL,         -- stop_id in ordine di percorrenza, separati da virgole
+    shape     TEXT NOT NULL,         -- tracciato: Encoded Polyline di Google (precisione 1e-5), semplificato a 5 m
+    PRIMARY KEY (route_id, direction, headsign)
+) WITHOUT ROWID;

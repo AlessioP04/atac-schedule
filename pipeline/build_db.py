@@ -20,11 +20,12 @@ import sys
 import time
 import zipfile
 from array import array
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+from shapes import encode_polyline, load_shapes, simplify
 from gtfs import DEFAULT_GTFS, MINUTES_PER_DAY, ROOT, download, open_csv, parse_date, parse_time, utf8_stdout
 
 SCHEMA_VERSION = 1
@@ -52,9 +53,11 @@ class Trip:
     direction: int
     headsign: str
     service_id: str
+    shape_id: str
 
 
 type LineKey = tuple[str, str, int, str]  # (stop_id, route_id, direction, headsign)
+type PatternKey = tuple[str, int, str]    # (route_id, direction, headsign)
 
 
 @dataclass
@@ -68,6 +71,10 @@ class Feed:
     timetables: Interner[bytes] = field(default_factory=Interner)
     day_sets: Interner[frozenset[date]] = field(default_factory=Interner)
     schedules: list[tuple[int, int, int]] = field(default_factory=list)  # (line, day_set, timetable)
+    # Per ogni linea/direzione/capolinea: quante corse seguono ogni (percorso, sequenza di fermate).
+    pattern_counts: dict[PatternKey, Counter[tuple[str, tuple[str, ...]]]] = field(default_factory=lambda: defaultdict(Counter))
+    # Il percorso "tipico" scelto per la mappa: (fermate in ordine, polyline codificata)
+    patterns: dict[PatternKey, tuple[tuple[str, ...], str]] = field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- #
@@ -122,6 +129,7 @@ def load_trips(gtfs: zipfile.ZipFile, services: dict[str, set[date]]) -> dict[st
                     direction=int(row[col["direction_id"]] or 0),
                     headsign=row[col["trip_headsign"]].strip(),
                     service_id=row[col["service_id"]],
+                    shape_id=row[col["shape_id"]] if "shape_id" in col else "",
                 )
     return trips
 
@@ -189,6 +197,8 @@ def collect_departures(
 
     def add_trip(trip: Trip, stops: list[tuple[int, str, int, str]]) -> None:
         stops.sort()  # per stop_sequence
+        sequence = tuple(stop_id for _, stop_id, _, _ in stops)
+        feed.pattern_counts[(trip.route_id, trip.direction, trip.headsign)][(trip.shape_id, sequence)] += 1
         for _, stop_id, minutes, pickup in stops[:-1]:  # al capolinea d'arrivo si scende soltanto
             if pickup == "1":                            # 1 = salita non consentita
                 continue
@@ -240,6 +250,17 @@ def collect_departures(
     return departures, shifted_dates
 
 
+def build_patterns(gtfs: zipfile.ZipFile, feed: Feed) -> None:
+    """Per ogni linea/direzione/capolinea sceglie la variante più frequente e ne prepara il percorso."""
+    chosen = {key: counts.most_common(1)[0][0] for key, counts in feed.pattern_counts.items()}
+    shapes = load_shapes(gtfs, {shape_id for shape_id, _ in chosen.values() if shape_id})
+    for key, (shape_id, sequence) in chosen.items():
+        points = shapes.get(shape_id)
+        if not points:  # senza shape: la linea retta tra le fermate è meglio di niente
+            points = [feed.stops[s][1:] for s in sequence if s in feed.stops]
+        feed.patterns[key] = (sequence, encode_polyline(simplify(points)))
+
+
 def encode_times(minutes: list[int]) -> bytes:
     times = array("H", minutes)
     if sys.byteorder == "big":
@@ -274,6 +295,8 @@ def yyyymmdd(d: date) -> int:
 def write_db(feed: Feed, path: Path, feed_sha256: str) -> None:
     path.unlink(missing_ok=True)
     used_stops = {stop_id for stop_id, *_ in feed.lines.ids}
+    # anche i capolinea d'arrivo (senza partenze) servono per disegnare i percorsi
+    used_stops |= {s for sequence, _ in feed.patterns.values() for s in sequence if s in feed.stops}
     used_routes = {route_id for _, route_id, *_ in feed.lines.ids}
     meta = {
         "schema_version": str(SCHEMA_VERSION),
@@ -300,6 +323,8 @@ def write_db(feed: Feed, path: Path, feed_sha256: str) -> None:
             con.executemany("INSERT INTO day_sets VALUES (?, ?)",
                             ((did, yyyymmdd(d)) for dates, did in feed.day_sets.ids.items() for d in dates))
             con.executemany("INSERT INTO schedules VALUES (?, ?, ?)", feed.schedules)
+            con.executemany("INSERT INTO patterns VALUES (?, ?, ?, ?, ?)",
+                            ((rid, d, h, ",".join(seq), shape) for (rid, d, h), (seq, shape) in feed.patterns.items()))
         con.execute("VACUUM")
     finally:
         con.close()
@@ -365,6 +390,8 @@ def build(gtfs_path: Path, out_dir: Path) -> dict:
             step(f"{len(split)} corse con righe non contigue in stop_times.txt: verranno ricomposte")
         departures, shifted_dates = collect_departures(gtfs, feed, trips, services, split)
         step(f"stop_times letto: {len(feed.lines)} linee-fermata")
+        build_patterns(gtfs, feed)
+        step(f"percorsi: {len(feed.patterns)} varianti di linea")
 
     build_schedules(feed, departures, shifted_dates)
     step(f"deduplicazione: {len(feed.schedules)} orari, {len(feed.timetables)} tabelle distinte, "

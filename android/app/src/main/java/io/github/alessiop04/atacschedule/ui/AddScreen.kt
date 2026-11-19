@@ -142,6 +142,11 @@ class AddViewModel(private val app: App) : ViewModel() {
         _selected.value = emptySet()
     }
 
+    /** Fermata scelta sulla mappa. */
+    fun selectById(stopId: String) {
+        viewModelScope.launch { app.timetable.query { it.stopResult(stopId) }?.let(::select) }
+    }
+
     fun toggle(key: LineKey) {
         _selected.value = _selected.value.let { if (key in it) it - key else it + key }
     }
@@ -157,7 +162,14 @@ class AddViewModel(private val app: App) : ViewModel() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddScreen(onBack: () -> Unit, onSaved: () -> Unit) {
+fun AddScreen(
+    onBack: () -> Unit,
+    onSaved: () -> Unit,
+    onMap: () -> Unit,
+    onShowRoute: (LineAtStop) -> Unit,
+    pickedStop: String?,
+    onPickedConsumed: () -> Unit,
+) {
     val app = appFromContext()
     val vm: AddViewModel = viewModel { AddViewModel(app) }
     val query by vm.query.collectAsStateWithLifecycle()
@@ -167,6 +179,10 @@ fun AddScreen(onBack: () -> Unit, onSaved: () -> Unit) {
     val saved by vm.saved.collectAsStateWithLifecycle()
     val nearby by vm.nearby.collectAsStateWithLifecycle()
     var naming by remember { mutableStateOf<List<LineAtStop>?>(null) }
+
+    LaunchedEffect(pickedStop) {
+        pickedStop?.let { vm.selectById(it); onPickedConsumed() }
+    }
 
     BackHandler(enabled = stop != null) { vm.select(null) }
 
@@ -185,6 +201,10 @@ fun AddScreen(onBack: () -> Unit, onSaved: () -> Unit) {
                     IconButton(onClick = { if (stop != null) vm.select(null) else onBack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Indietro")
                     }
+                },
+                actions = {
+                    // la ricerca classica resta la prima; la mappa è a un tocco
+                    if (stop == null) IconButton(onClick = onMap) { Icon(AppIcons.Map, "Cerca sulla mappa") }
                 },
             )
         },
@@ -208,7 +228,7 @@ fun AddScreen(onBack: () -> Unit, onSaved: () -> Unit) {
     ) { padding ->
         val s = stop
         if (s == null) SearchContent(query, search, nearby, { vm.query.value = it }, vm::select, vm::findNearby, vm::nearbyDenied, Modifier.padding(padding))
-        else LinesContent(s, selected, saved, vm::toggle, Modifier.padding(padding))
+        else LinesContent(s, selected, saved, vm::toggle, onShowRoute, Modifier.padding(padding))
     }
 
     naming?.let { lines ->
@@ -340,6 +360,7 @@ private fun LinesContent(
     selected: Set<LineKey>,
     saved: Set<LineKey>,
     onToggle: (LineKey) -> Unit,
+    onShowRoute: (LineAtStop) -> Unit,
     modifier: Modifier,
 ) {
     if (stop.lines.isEmpty()) {
@@ -361,6 +382,10 @@ private fun LinesContent(
                 Column(Modifier.weight(1f)) {
                     Text("→ " + Format.prettyName(line.key.headsign), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Normal)
                     if (isSaved) Text("Già tra i preferiti", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                }
+                // per controllare che la linea passi davvero dove serve
+                IconButton(onClick = { onShowRoute(line) }) {
+                    Icon(AppIcons.Map, "Percorso della linea ${line.routeName}", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             HorizontalDivider()

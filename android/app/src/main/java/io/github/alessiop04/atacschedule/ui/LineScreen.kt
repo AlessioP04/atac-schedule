@@ -68,6 +68,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.alessiop04.atacschedule.App
 import io.github.alessiop04.atacschedule.data.Favorite
+import io.github.alessiop04.atacschedule.data.LineKey
 import io.github.alessiop04.atacschedule.domain.Board
 import io.github.alessiop04.atacschedule.domain.BoardBuilder
 import io.github.alessiop04.atacschedule.domain.Departure
@@ -150,7 +151,7 @@ class LineViewModel(private val app: App, private val id: Long) : ViewModel() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LineScreen(id: Long, onBack: () -> Unit) {
+fun LineScreen(id: Long, onBack: () -> Unit, onShowRoute: (LineKey) -> Unit) {
     val app = appFromContext()
     val vm: LineViewModel = viewModel(key = "line-$id") { LineViewModel(app, id) }
     val fav by vm.favorite.collectAsStateWithLifecycle()
@@ -177,7 +178,10 @@ fun LineScreen(id: Long, onBack: () -> Unit) {
                     }
                 },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Indietro") } },
-                actions = { IconButton(onClick = { renaming = true }) { Icon(Icons.Default.Edit, "Rinomina") } },
+                actions = {
+                    IconButton(onClick = { onShowRoute(f.key) }) { Icon(AppIcons.Map, "Percorso sulla mappa") }
+                    IconButton(onClick = { renaming = true }) { Icon(Icons.Default.Edit, "Rinomina") }
+                },
             )
         },
     ) { padding ->
